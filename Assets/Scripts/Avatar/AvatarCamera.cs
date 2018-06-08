@@ -8,6 +8,7 @@ public class AvatarCamera : MonoBehaviour {
 
     [Header("References")]
 	[SerializeField] private new Camera camera;
+    public Camera Camera { get { return camera; } }
     [SerializeField] private Transform avatarFocus;
 
     [Header("Field of View")]
@@ -21,7 +22,7 @@ public class AvatarCamera : MonoBehaviour {
     [SerializeField] private float PitchMax = 80f;
 
     [Header("Input Modifiers")]
-    [SerializeField, Range(0f, 1f)] private float InputDeadZone = 0.01f;
+    [SerializeField, Range(0f, 1f)] private float ScrollInputDeadZone = 0.01f;
     [SerializeField, Range(0.1f, 10f)] private float LateralInputSensitivity = 1f;
     [SerializeField, Range(0.1f, 10f)] private float VerticalInputSensitivity = 1f;
     [SerializeField, Range(0.1f, 10f)] private float ZoomInputSensitivity = 1f;
@@ -113,7 +114,7 @@ public class AvatarCamera : MonoBehaviour {
         pitch = CameraHelper.ClampAngle(pitch, PitchMin, PitchMax);
 
         float zoom = Managers.Input.ZoomInput;
-        if (zoom < -InputDeadZone || zoom > InputDeadZone) {
+        if (zoom < -ScrollInputDeadZone || zoom > ScrollInputDeadZone) {
             desiredDistance = Mathf.Clamp(currentDistance - (zoom * ZoomInputSensitivity), DistanceMin, DistanceMax);
             preOccludedDistance = desiredDistance;
             distanceSmoothTime = DistanceSmoothTime;

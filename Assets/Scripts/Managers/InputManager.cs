@@ -16,6 +16,8 @@ public class InputManager : Manager {
     public float ZoomInput { get { return zoomInput; } }
     private float zoomInput;
 
+    private Vector2 keyboardMoveInput = Vector2.zero;
+
 	public override void Startup()
     {
         rewiredPlayer = ReInput.players.GetPlayer(PLAYER_ID);
@@ -41,8 +43,16 @@ public class InputManager : Manager {
     }
 
     private void HandleMoveInput() {
-        moveInput.x = rewiredPlayer.GetAxis("MoveLateral");
-        moveInput.y = rewiredPlayer.GetAxis("MoveVertical");
+        keyboardMoveInput.x = rewiredPlayer.GetAxisRaw("KeyboardMoveLateral");
+        keyboardMoveInput.y = rewiredPlayer.GetAxisRaw("KeyboardMoveVertical");
+
+        if (keyboardMoveInput.sqrMagnitude > 0f) {
+            moveInput = keyboardMoveInput;
+        }
+        else {
+            moveInput.x = rewiredPlayer.GetAxis("MoveLateral");
+            moveInput.y = rewiredPlayer.GetAxis("MoveVertical");
+        }
     }
 
     private void HandleLookInput() {

@@ -6,7 +6,7 @@ Material:
   m_ObjectHideFlags: 0
   m_PrefabParentObject: {fileID: 0}
   m_PrefabInternal: {fileID: 0}
-  m_Name: Red
+  m_Name: Dark
   m_Shader: {fileID: 4800000, guid: 788fa8e258b46439380a1b4438c65635, type: 3}
   m_ShaderKeywords: 
   m_LightmapFlags: 4
@@ -83,5 +83,5 @@ Material:
     - _UVSec: 0
     - _ZWrite: 1
     m_Colors:
-    - _Color: {r: 0.32836416, g: 0.38252783, b: 0.4433962, a: 1}
+    - _Color: {r: 0.20754719, g: 0.10083661, b: 0.14266764, a: 0}
     - _EmissionColor: {r: 0, g: 0, b: 0, a: 1}

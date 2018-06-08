@@ -14,4 +14,8 @@ public class CameraManager : Manager {
     {
 		managerState = ManagerState.Shutdown;
     }
+
+    public Camera GetCurrentCamera() {
+        return avatarCamera.Camera;
+    }
 }

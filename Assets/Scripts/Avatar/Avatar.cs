@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using UnityEngine;
     
 public class Avatar : MonoBehaviour {
-    private AvatarController controller;
+    private AvatarMover controller;
     private new AvatarCamera camera;
 
     private void Awake() {
