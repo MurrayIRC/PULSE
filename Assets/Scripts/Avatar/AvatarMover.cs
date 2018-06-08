@@ -18,6 +18,7 @@ public class AvatarMover : MonoBehaviour {
     [SerializeField] private float TurnAccelerationTime = 1f;
     [SerializeField] private float TurnDecelerationTime = 1f;
 
+    private Vector3 pureInput = Vector3.zero;
     private Vector3 moveInput = Vector3.zero;
     private Vector3 movementVector = Vector3.zero;
     private Vector3 lastMovementVector = Vector3.zero;
@@ -26,15 +27,17 @@ public class AvatarMover : MonoBehaviour {
 
     private float currentMoveSpeed = 0f;
     private float currentMoveSmoothVelocity = 0f;
-
     private float currentTurnSpeed = 0f;
     private float currentTurnSmoothVelocity = 0f;
+
+    private float timeSinceMoveInputBegan = 0f;
 
     private void Awake() {
 		
 	}
 
     private void Update() {
+        // Input handling.
         HandleInput();
         CalculateMovement();
     }
@@ -42,16 +45,23 @@ public class AvatarMover : MonoBehaviour {
     #region Movement Update Calculations
 
     private void HandleInput() {
-        moveInput.x = Managers.Input.MoveInput.x;
-        moveInput.y = 0f;
-        moveInput.z = Managers.Input.MoveInput.y;
+        pureInput.x = Managers.Input.MoveInput.x;
+        pureInput.y = 0f;
+        pureInput.z = Managers.Input.MoveInput.y;
 
-        moveInput = Managers.Camera.GetCurrentCamera().transform.TransformDirection(moveInput);
+        if (pureInput.x >= MoveInputDeadZone || pureInput.x <= -MoveInputDeadZone) {
+            timeSinceMoveInputBegan += Time.deltaTime;
+        }
+        else {
+            timeSinceMoveInputBegan = 0f;
+        }
+
+        moveInput = Managers.Camera.GetCurrentCamera().transform.TransformDirection(pureInput);
         moveInput.y = 0f;
     }
 
     private void CalculateMovement() {
-        if (moveInput.sqrMagnitude > MoveInputDeadZone * MoveInputDeadZone) {
+        if (pureInput.sqrMagnitude > MoveInputDeadZone * MoveInputDeadZone) {
             currentMoveSpeed = Mathf.SmoothDamp(currentMoveSpeed, DesiredMoveSpeed, ref currentMoveSmoothVelocity, MoveAccelerationTime);
             currentTurnSpeed = Mathf.SmoothDamp(currentTurnSpeed, DesiredTurnSpeed, ref currentTurnSmoothVelocity, TurnAccelerationTime);
 
@@ -75,6 +85,8 @@ public class AvatarMover : MonoBehaviour {
 
     #endregion
 	
+    #region Movement Code
+
     private void FixedUpdate() {
 		HandleMovement();
 	}
@@ -83,4 +95,14 @@ public class AvatarMover : MonoBehaviour {
         rigidbody.MovePosition(transform.position + movementVector);
         rigidbody.MoveRotation(Quaternion.Slerp(transform.rotation, desiredRotation, currentTurnSpeed * Time.deltaTime));
     }
+
+    #endregion
+
+    #region Helpers
+
+    public bool MovementShouldAdjustCamera() {
+        return timeSinceMoveInputBegan > 1f && currentMoveSpeed > 0.15f;
+    }
+
+    #endregion
 }

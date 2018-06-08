@@ -5,6 +5,7 @@
 [Bb]uilds/
 Assets/AssetStoreTools*
 Assets/Rewired/
+Assets/Plugins/
 RewiredBackup/
 
 # Visual Studio cache directory

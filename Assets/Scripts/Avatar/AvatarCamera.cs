@@ -9,6 +9,8 @@ public class AvatarCamera : MonoBehaviour {
     [Header("References")]
 	[SerializeField] private new Camera camera;
     public Camera Camera { get { return camera; } }
+
+    [SerializeField] private Avatar avatar;
     [SerializeField] private Transform avatarFocus;
 
     [Header("Field of View")]
@@ -22,6 +24,7 @@ public class AvatarCamera : MonoBehaviour {
     [SerializeField] private float PitchMax = 80f;
 
     [Header("Input Modifiers")]
+    [SerializeField, Range(0f, 1f)] private float LookInputDeadZone = 0.01f;
     [SerializeField, Range(0f, 1f)] private float ScrollInputDeadZone = 0.01f;
     [SerializeField, Range(0.1f, 10f)] private float LateralInputSensitivity = 1f;
     [SerializeField, Range(0.1f, 10f)] private float VerticalInputSensitivity = 1f;
@@ -30,7 +33,8 @@ public class AvatarCamera : MonoBehaviour {
     [Header("Smoothing")] // Time, in seconds, that it will take to reach the desired values.
     [SerializeField] private float XSmoothTime = 0.5f; 
     [SerializeField] private float YSmoothTime = 1f; 
-    [SerializeField] private float DistanceSmoothTime = 3f; 
+    [SerializeField] private float DistanceSmoothTime = 3f;
+    [SerializeField] private float ForwardCorrectionTime = 2f; // How long it takes for the camera to swing around to the player's direction if there's no input.
 
     [Header("Occlusion Checking")]
     [SerializeField] private float OcclusionDistanceStep = 0.4f; // How often we will run the Occlusion Raycast Check
@@ -53,6 +57,7 @@ public class AvatarCamera : MonoBehaviour {
     private float currentDistance = 0f;
     private float desiredDistance = 0f;
     private float distanceSmoothVelocity = 0f;
+    private float forwardCorrectionSmoothVelocity = 0f;
 
     private float distanceSmoothTime = 0f;
     private float preOccludedDistance = 0f;
@@ -106,8 +111,13 @@ public class AvatarCamera : MonoBehaviour {
     }
 
     private void HandleInput() {
-        yaw += Managers.Input.LookInput.x * LateralInputSensitivity;
-        pitch += -Managers.Input.LookInput.y * VerticalInputSensitivity; // Opposite input creates the non-inverted behaviour.
+        if (Managers.Input.LookInput.sqrMagnitude > LookInputDeadZone * LookInputDeadZone) {
+            yaw += Managers.Input.LookInput.x * LateralInputSensitivity;
+            pitch += -Managers.Input.LookInput.y * VerticalInputSensitivity; // Opposite input creates the non-inverted behaviour.
+        }
+        else if (avatar.Movement.MovementShouldAdjustCamera()) {
+            yaw = Mathf.SmoothDampAngle(yaw, avatarFocus.eulerAngles.y, ref forwardCorrectionSmoothVelocity, ForwardCorrectionTime);
+        }
 
         // clamp the pitch angle within the nice area.
         // TODO: have the speed toward these min and max values slow down as pitch gets closer, following a curve.
