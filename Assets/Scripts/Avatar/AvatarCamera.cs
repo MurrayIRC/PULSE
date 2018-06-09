@@ -115,7 +115,7 @@ public class AvatarCamera : MonoBehaviour {
             yaw += Managers.Input.LookInput.x * LateralInputSensitivity;
             pitch += -Managers.Input.LookInput.y * VerticalInputSensitivity; // Opposite input creates the non-inverted behaviour.
         }
-        else if (avatar.Movement.MovementShouldAdjustCamera()) {
+        else if (avatar.Controller.MovementShouldAdjustCamera()) {
             yaw = Mathf.SmoothDampAngle(yaw, avatarFocus.eulerAngles.y, ref forwardCorrectionSmoothVelocity, ForwardCorrectionTime);
         }
 

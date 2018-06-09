@@ -3,8 +3,8 @@ using System.Collections.Generic;
 using UnityEngine;
     
 public class Avatar : MonoBehaviour {
-    public AvatarMover Movement { get { return movement; } }
-    [SerializeField] private AvatarMover movement;
+    public AvatarController Controller { get { return controller; } }
+    [SerializeField] private AvatarController controller;
 
     public AvatarCamera Camera { get { return camera; } }
     [SerializeField] private new AvatarCamera camera;
