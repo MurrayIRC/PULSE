@@ -2,16 +2,16 @@
 using System.Collections.Generic;
 using UnityEngine;
 using Rewired;
+using Sirenix.OdinInspector;
 
 public class AvatarCamera : MonoBehaviour {
     #region Inspector-Surfaced Properties
 
-    [Header("References")]
-	[SerializeField] private new Camera camera;
+	[BoxGroup("References"), SerializeField] private new Camera camera;
     public Camera Camera { get { return camera; } }
 
-    [SerializeField] private Avatar avatar;
-    [SerializeField] private Transform avatarFocus;
+    [BoxGroup("References"), SerializeField] private Avatar avatar;
+    [BoxGroup("References"), SerializeField] private Transform avatarFocus;
 
     [Header("Field of View")]
     [SerializeField] private float FOVDefault = 60f;
@@ -35,13 +35,15 @@ public class AvatarCamera : MonoBehaviour {
     [SerializeField] private float YSmoothTime = 1f; 
     [SerializeField] private float DistanceSmoothTime = 3f;
     [SerializeField] private float ForwardCorrectionTime = 2f; // How long it takes for the camera to swing around to the player's direction if there's no input.
-
-    [Header("Occlusion Checking")]
-    [SerializeField] private float OcclusionDistanceStep = 0.4f; // How often we will run the Occlusion Raycast Check
-    [SerializeField] private int MaxOcclusionChecks = 10;
-
-    [Header("Occlusion Returning")] // when the camera moves back to its previous distance after coming forward from occlusion
     [SerializeField] private float DistanceReturnSmoothTime = 1f;
+
+    [Header("Raycast Adjustment Values")]
+    [SerializeField] private float WhiskerMoveSharpness = 1f;
+    [SerializeField] private float BackcastForwardAdjustmentStep = 0.4f;
+    
+    [Header("Approximate Wall-Like Angles")]
+    [SerializeField] private float MinWallAngle = 80f;
+    [SerializeField] private float MaxWallAngle = 100f;
 
     #endregion
 
@@ -60,7 +62,7 @@ public class AvatarCamera : MonoBehaviour {
     private float forwardCorrectionSmoothVelocity = 0f;
 
     private float distanceSmoothTime = 0f;
-    private float preOccludedDistance = 0f;
+    private float preAdjustedDistance = 0f;
 
     private float yaw = 0f; // lateral
     private float pitch = 0f; // vertical
@@ -68,13 +70,12 @@ public class AvatarCamera : MonoBehaviour {
     private float lateralOffset = 0f;
     private float verticalOffset = 0f;
 
-    private int occlusionCheckCount = 0;
-
     private Transform secondaryFocus; // for determining if we should offset the focus.
 
     #endregion
 
     private void Awake() {
+        currentDistance = DistanceMin + ((DistanceMax - DistanceMin) / 2f);
         currentDistance = Mathf.Clamp(currentDistance, DistanceMin, DistanceMax);
         startDistance = currentDistance;
         Reset();
@@ -88,7 +89,7 @@ public class AvatarCamera : MonoBehaviour {
         // prevent the camera from moving on start, it has already been clamped within the field
         currentDistance = startDistance;
         desiredDistance = currentDistance;
-        preOccludedDistance = currentDistance;
+        preAdjustedDistance = currentDistance;
     }
 
     #region Internal Camera Logic
@@ -99,14 +100,8 @@ public class AvatarCamera : MonoBehaviour {
         }
     
         HandleInput();
-
-        // Core camera position determination.
-        occlusionCheckCount = 0;
-        do {
-            CalculateDesiredPosition();
-            occlusionCheckCount++;
-        } while(CheckIfOccluded(occlusionCheckCount));
-
+        CalculateDesiredPosition();
+        HandleRaycasting();
         UpdateCameraPosition();
     }
 
@@ -123,17 +118,18 @@ public class AvatarCamera : MonoBehaviour {
         // TODO: have the speed toward these min and max values slow down as pitch gets closer, following a curve.
         pitch = CameraHelper.ClampAngle(pitch, PitchMin, PitchMax);
 
+        // Lerp the field of view up when the camera is low, up against the player.
+        camera.fieldOfView = Mathf.Lerp(FOVSkyward, FOVDefault, Mathf.Abs(PitchMin - pitch) / Mathf.Abs(PitchMin));
+
         float zoom = Managers.Input.ZoomInput;
         if (zoom < -ScrollInputDeadZone || zoom > ScrollInputDeadZone) {
             desiredDistance = Mathf.Clamp(currentDistance - (zoom * ZoomInputSensitivity), DistanceMin, DistanceMax);
-            preOccludedDistance = desiredDistance;
+            preAdjustedDistance = desiredDistance;
             distanceSmoothTime = DistanceSmoothTime;
         }
     }
 
     private void CalculateDesiredPosition() {
-        ReturnOccludedDistanceToPreOcclusionValue();
-
         // Smooth damp (s-curve) the distance to the desired distance
         currentDistance = Mathf.SmoothDamp(currentDistance, desiredDistance, ref distanceSmoothVelocity, distanceSmoothTime);
 
@@ -164,138 +160,192 @@ public class AvatarCamera : MonoBehaviour {
 
     #endregion
 
-    #region Camera Raycasting
+    #region Whisker Raycasting
 
-    private bool CheckIfOccluded(int numChecks) {
-        bool isOccluded = false;
+    private void HandleRaycasting() {
+        // TODO: save data over a frame and use it in place of doing the raycasts all over again
 
-        float nearestDistance = GetOccludedDistance(avatarFocus.position, desiredPosition);
+        // WHISKER CHECKS
+        CameraHelper.WhiskerPoints whiskerPoints = CameraHelper.GetWhiskerPoints(avatarFocus.position, desiredPosition);
+        CameraHelper.WhiskerHitInfo whiskerLeft3 = GetWhiskerHit(whiskerPoints.Left3, avatarFocus.position);
+        CameraHelper.WhiskerHitInfo whiskerLeft2 = GetWhiskerHit(whiskerPoints.Left2, avatarFocus.position);
+        CameraHelper.WhiskerHitInfo whiskerLeft1 = GetWhiskerHit(whiskerPoints.Left1, avatarFocus.position);
+        CameraHelper.WhiskerHitInfo whiskerRight1 = GetWhiskerHit(whiskerPoints.Right1, avatarFocus.position);
+        CameraHelper.WhiskerHitInfo whiskerRight2 = GetWhiskerHit(whiskerPoints.Right2, avatarFocus.position);
+        CameraHelper.WhiskerHitInfo whiskerRight3 = GetWhiskerHit(whiskerPoints.Right3, avatarFocus.position);
 
-        if (!Mathf.Approximately(nearestDistance, -1f)) {
-            if (numChecks < MaxOcclusionChecks) {
-                isOccluded = true;
-                currentDistance -= OcclusionDistanceStep;
+        float nearestDistance = -1f;
+        int numLeftHit = 0;
+        if (IsValidWhiskerHit(whiskerLeft3)) {
+            numLeftHit++; 
+            nearestDistance = whiskerLeft3.distance;
+        }
+        if (IsValidWhiskerHit(whiskerLeft2)) {
+            numLeftHit++; 
+            if (whiskerLeft2.distance < nearestDistance || Mathf.Approximately(nearestDistance, -1f)) {
+                nearestDistance = whiskerLeft2.distance;
+            }
+        }
+        if (IsValidWhiskerHit(whiskerLeft1)) {
+            numLeftHit++; 
+            if (whiskerLeft1.distance < nearestDistance || Mathf.Approximately(nearestDistance, -1f)) {
+                nearestDistance = whiskerLeft1.distance;
+            }
+        }
+
+        int numRightHit = 0;
+        if (IsValidWhiskerHit(whiskerRight1)) {
+            numRightHit++; 
+            if (whiskerRight1.distance < nearestDistance || Mathf.Approximately(nearestDistance, -1f)) {
+                nearestDistance = whiskerRight1.distance;
+            }
+        }
+        if (IsValidWhiskerHit(whiskerRight2)) {
+            numRightHit++; 
+            if (whiskerRight2.distance < nearestDistance || Mathf.Approximately(nearestDistance, -1f)) {
+                nearestDistance = whiskerRight2.distance;
+            }
+        }
+        if (IsValidWhiskerHit(whiskerRight3)) {
+            numRightHit++;
+            if (whiskerRight3.distance < nearestDistance || Mathf.Approximately(nearestDistance, -1f)) {
+                nearestDistance = whiskerRight3.distance;
+            }
+        }
+
+        if (numLeftHit > 0 || numRightHit > 0) {
+            if (Managers.Input.LookInput.sqrMagnitude > LookInputDeadZone * LookInputDeadZone) {
+                //Debug.Log("Nearest Distance: " + nearestDistance);
+                desiredDistance = Mathf.Clamp(nearestDistance, DistanceMin, DistanceMax);
+            }
+            else if (avatar.Controller.IsMoving()) {
+                if (numLeftHit > numRightHit) {
+                    yaw = Mathf.LerpAngle(yaw, yaw - numLeftHit, 1f - Mathf.Exp(-WhiskerMoveSharpness * Time.deltaTime));
+                }
+                else if (numRightHit > numLeftHit) {
+                    yaw = Mathf.LerpAngle(yaw, yaw + numRightHit, 1f - Mathf.Exp(-WhiskerMoveSharpness * Time.deltaTime));
+                }
+            }
+
+            distanceSmoothTime = DistanceReturnSmoothTime;
+        }
+        else {
+            // BACK CHECKS
+            float backDistance = GetBackcastDistance(avatarFocus.position, desiredPosition);
+            if (!Mathf.Approximately(backDistance, -1f)) {
+                currentDistance -= BackcastForwardAdjustmentStep;
 
                 // Magic number that reduces jittering at close distances.
                 if (currentDistance < 0.25f) {
                     currentDistance = 0.25f;
                 }
-            }
-            else {
-                // Force-move to the non-occluded spot plus a little buffer to account for the near clip plane.
-                currentDistance = nearestDistance - camera.nearClipPlane;
-            }
 
-            desiredDistance = currentDistance;
-            distanceSmoothTime = DistanceReturnSmoothTime;
+                desiredDistance = currentDistance;
+                distanceSmoothTime = DistanceReturnSmoothTime;
+            }
         }
 
-        return isOccluded;
+        if (desiredDistance < preAdjustedDistance) {
+            if (Mathf.Approximately(nearestDistance, -1f) || nearestDistance > preAdjustedDistance) {
+                desiredDistance = preAdjustedDistance;
+            }
+        }
     }
 
-    // Gets a distance value that will influence the camera's distance.
-    // This distance will take precedence as this function is what determines if the camera can't see the player
-    // and must move in front of a wall.
-    CameraHelper.ClipPlanePoints nearClipPoints;
-    private float GetOccludedDistance(Vector3 from, Vector3 to) {
-        float nearestDistance = -1f;
+    private CameraHelper.WhiskerHitInfo GetWhiskerHit(Vector3 whiskerPoint, Vector3 origin) {
+        CameraHelper.WhiskerHitInfo info = new CameraHelper.WhiskerHitInfo();
+        info.distance = -1f;
+
+        Debug.DrawLine(origin, whiskerPoint);
+
+        RaycastHit hit;
+        if (Physics.Linecast(origin, whiskerPoint, out hit)) {
+            if (IsWallHit(hit.normal)) {
+                info.position = hit.point;
+                info.distance = hit.distance;
+            }
+        }
+
+        return info;
+    }
+
+    private bool IsValidWhiskerHit(CameraHelper.WhiskerHitInfo hitInfo) {
+        return !Mathf.Approximately(hitInfo.distance, -1f);
+    }
+
+    // Returns true if the angle of the given normal is close enough to being a "wall angle".
+    private bool IsWallHit(Vector3 normal) {
+        float angle = Vector3.Angle(normal, Vector3.up);
+        return angle >= MinWallAngle && angle <= MaxWallAngle;
+    }
+
+    #endregion
+
+    #region Back Raycasting
+
+    private float GetBackcastDistance(Vector3 from, Vector3 to) {
+        float distance = -1f;
         RaycastHit hitInfo;
 
-        nearClipPoints = CameraHelper.GetCameraNearClipPlanePoints(camera, to);
-
-        // Draw Debug Lines for visualization.
         #region Debug Drawing
         Debug.DrawLine(from, to + camera.transform.forward * -camera.nearClipPlane, Color.red);
-        Debug.DrawLine(from, nearClipPoints.UpperLeft);
-        Debug.DrawLine(from, nearClipPoints.LowerLeft);
-        Debug.DrawLine(from, nearClipPoints.UpperRight);
-        Debug.DrawLine(from, nearClipPoints.LowerRight);
-        Debug.DrawLine(nearClipPoints.UpperLeft, nearClipPoints.UpperRight);
-        Debug.DrawLine(nearClipPoints.UpperRight, nearClipPoints.LowerRight);
-        Debug.DrawLine(nearClipPoints.LowerRight, nearClipPoints.LowerLeft);
-        Debug.DrawLine(nearClipPoints.LowerLeft, nearClipPoints.UpperLeft);
         #endregion
 
         #region Linecasts
-        // Currently player is on the IgnoreRaycast layer, so we don't need to check collider tags.
-        if (Physics.Linecast(from, nearClipPoints.UpperLeft, out hitInfo)) {
-            nearestDistance = hitInfo.distance;
-        }
-
-        if (Physics.Linecast(from, nearClipPoints.LowerLeft, out hitInfo)) {
-            if (hitInfo.distance < nearestDistance || Mathf.Approximately(nearestDistance, -1f)) {
-                nearestDistance = hitInfo.distance;
-            }
-        }
-
-        if (Physics.Linecast(from, nearClipPoints.UpperRight, out hitInfo)) {
-            if (hitInfo.distance < nearestDistance || Mathf.Approximately(nearestDistance, -1f)) {
-                nearestDistance = hitInfo.distance;
-            }
-        }
-
-        if (Physics.Linecast(from, nearClipPoints.LowerRight, out hitInfo)) {
-            if (hitInfo.distance < nearestDistance || Mathf.Approximately(nearestDistance, -1f)) {
-                nearestDistance = hitInfo.distance;
-            }
-        }
-
         // Check back buffer area behind the camera.
         if (Physics.Linecast(from, to + camera.transform.forward * -camera.nearClipPlane, out hitInfo)) {
-            if (hitInfo.distance < nearestDistance || Mathf.Approximately(nearestDistance, -1f)) {
-                nearestDistance = hitInfo.distance;
-            }
+            distance = hitInfo.distance;
         }
         #endregion
 
-        return nearestDistance;
+        return distance;
     }
 
-    private void ReturnOccludedDistanceToPreOcclusionValue() {
-        if (desiredDistance < preOccludedDistance) {
-            Vector3 position = GetDesiredOffsetFromAvatar(pitch, yaw, preOccludedDistance);
-            float nearestDistance = GetOccludedDistance(avatarFocus.position, position);
+    #endregion
 
-            if (Mathf.Approximately(nearestDistance, -1f) || nearestDistance > preOccludedDistance) {
-                desiredDistance = preOccludedDistance;
-            }
-        }
+    #region Ground Raycasting
+
+    // Casts a ray down and helps move the camera along a smooth curve towards the worms-eye view.
+    // This should bypass the occlusion raycasting.
+    private void AdjustToGround() {
+        Vector3 startPos = camera.transform.position;
+        float avatarHeight = avatarFocus.transform.position.y - avatar.transform.position.y;
+        Vector3 groundRayEndPosition = startPos + (Vector3.down * avatarHeight);
     }
 
     #endregion
 }
 
 public static class CameraHelper {
-    public struct ClipPlanePoints {
-        public Vector3 UpperLeft;
-        public Vector3 UpperRight;
-        public Vector3 LowerLeft;
-        public Vector3 LowerRight;
+    // Alternative method to clip plane occlusion casting is done with whisker raycasts shot from the player
+    // Towards points around the camera determined by angle.
+    public struct WhiskerPoints {
+        public Vector3 Left3;
+        public Vector3 Left2;
+        public Vector3 Left1;
+        public Vector3 Right1;
+        public Vector3 Right2;
+        public Vector3 Right3;
     }
 
-    public static ClipPlanePoints GetCameraNearClipPlanePoints(Camera camera, Vector3 position) {
-        ClipPlanePoints points = new ClipPlanePoints();
-
-        float height = camera.nearClipPlane * Mathf.Tan((camera.fieldOfView / 2f) * Mathf.Deg2Rad);
-        float width = height * camera.aspect;
-
-        points.LowerRight = position + (camera.transform.right * width) 
-                                     - (camera.transform.up * height) 
-                                     + (camera.transform.forward * camera.nearClipPlane);
-        
-        points.LowerLeft = position - (camera.transform.right * width) 
-                                    - (camera.transform.up * height) 
-                                    + (camera.transform.forward * camera.nearClipPlane);
-
-        points.UpperRight = position + (camera.transform.right * width) 
-                                     + (camera.transform.up * height) 
-                                     + (camera.transform.forward * camera.nearClipPlane);
-        
-        points.UpperLeft = position - (camera.transform.right * width) 
-                                    + (camera.transform.up * height) 
-                                    + (camera.transform.forward * camera.nearClipPlane);
-
+    public struct WhiskerHitInfo {
+        public Vector3 position;
+        public float distance;
+    }
+    
+    public static WhiskerPoints GetWhiskerPoints(Vector3 origin, Vector3 cameraToPos) {
+        WhiskerPoints points = new WhiskerPoints();
+        points.Left3 = RotatePointAroundPivot(cameraToPos, origin, Quaternion.Euler(0f, 48f, 0f));
+        points.Left2 = RotatePointAroundPivot(cameraToPos, origin, Quaternion.Euler(0f, 32f, 0f));
+        points.Left1 = RotatePointAroundPivot(cameraToPos, origin, Quaternion.Euler(0f, 16f, 0f));
+        points.Right1 = RotatePointAroundPivot(cameraToPos, origin, Quaternion.Euler(0f, -16f, 0f));
+        points.Right2 = RotatePointAroundPivot(cameraToPos, origin, Quaternion.Euler(0f, -32f, 0f));
+        points.Right3 = RotatePointAroundPivot(cameraToPos, origin, Quaternion.Euler(0f, -48f, 0f));
         return points;
+    }
+
+    public static Vector3 RotatePointAroundPivot(Vector3 point, Vector3 pivot, Quaternion rotation) {
+        return (rotation * (point - pivot)) + pivot;
     }
 
     public static float ClampAngle(float angle, float min, float max) {

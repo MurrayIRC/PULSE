@@ -14,6 +14,7 @@ public class AvatarController : BaseCharacterController {
 
     [Header("Input Values")]
     [SerializeField] private float MoveInputDeadZone = 0.01f;
+    [SerializeField] private float CameraInfluenceDeadZone = 0.5f;
 
     [Header("Ground Movement")]
     [SerializeField] private float GroundMoveSpeed = 5f;
@@ -86,7 +87,11 @@ public class AvatarController : BaseCharacterController {
     #region Helpers
 
     public bool MovementShouldAdjustCamera() {
-        return timeSinceMoveInputBegan > 1f && (Motor.Velocity.x > MoveInputDeadZone || Motor.Velocity.x < -MoveInputDeadZone);
+        return timeSinceMoveInputBegan > 1f && (pureInput.x > CameraInfluenceDeadZone || pureInput.x < -CameraInfluenceDeadZone);
+    }
+
+    public bool IsMoving() {
+        return Motor.Velocity.sqrMagnitude > MoveInputDeadZone * MoveInputDeadZone;
     }
 
     #endregion
