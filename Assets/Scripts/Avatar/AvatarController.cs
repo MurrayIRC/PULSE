@@ -87,7 +87,7 @@ public class AvatarController : BaseCharacterController {
     #region Helpers
 
     public bool MovementShouldAdjustCamera() {
-        return timeSinceMoveInputBegan > 1f && (pureInput.x > CameraInfluenceDeadZone || pureInput.x < -CameraInfluenceDeadZone);
+        return timeSinceMoveInputBegan > 0.6f && (pureInput.x > CameraInfluenceDeadZone || pureInput.x < -CameraInfluenceDeadZone);
     }
 
     public bool IsMoving() {

@@ -165,7 +165,7 @@ public class AvatarCamera : MonoBehaviour {
     private void HandleRaycasting() {
         // TODO: save data over a frame and use it in place of doing the raycasts all over again
 
-        // WHISKER CHECKS
+        #region Whisker Checks
         CameraHelper.WhiskerPoints whiskerPoints = CameraHelper.GetWhiskerPoints(avatarFocus.position, desiredPosition);
         CameraHelper.WhiskerHitInfo whiskerLeft3 = GetWhiskerHit(whiskerPoints.Left3, avatarFocus.position);
         CameraHelper.WhiskerHitInfo whiskerLeft2 = GetWhiskerHit(whiskerPoints.Left2, avatarFocus.position);
@@ -212,6 +212,7 @@ public class AvatarCamera : MonoBehaviour {
                 nearestDistance = whiskerRight3.distance;
             }
         }
+        #endregion
 
         if (numLeftHit > 0 || numRightHit > 0) {
             if (Managers.Input.LookInput.sqrMagnitude > LookInputDeadZone * LookInputDeadZone) {
@@ -227,7 +228,7 @@ public class AvatarCamera : MonoBehaviour {
                 }
             }
 
-            distanceSmoothTime = DistanceReturnSmoothTime;
+            distanceSmoothTime = DistanceSmoothTime;
         }
         else {
             // BACK CHECKS
@@ -247,7 +248,10 @@ public class AvatarCamera : MonoBehaviour {
 
         if (desiredDistance < preAdjustedDistance) {
             if (Mathf.Approximately(nearestDistance, -1f) || nearestDistance > preAdjustedDistance) {
+                // YOU ARE HERE.
+                // FIGURE OUT WHY THIS GETS CALLED AT THE WRONG TIMES
                 desiredDistance = preAdjustedDistance;
+                distanceSmoothTime = DistanceReturnSmoothTime;
             }
         }
     }
